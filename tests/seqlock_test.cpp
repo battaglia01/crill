@@ -7,9 +7,107 @@
 // Created by Timur Doumler on 06/02/2023.
 //
 
-#include <crill/seqlock_object.h>
+#include <crill/seqlock.h>
 #include <doctest/doctest.h>
 #include <thread>
+
+TEST_CASE("crill::seqlock")
+{
+    crill::seqlock sl;
+
+    static_assert(!std::is_copy_constructible_v<crill::seqlock>);
+    static_assert(!std::is_copy_assignable_v<crill::seqlock>);
+    static_assert(!std::is_move_constructible_v<crill::seqlock>);
+    static_assert(!std::is_move_assignable_v<crill::seqlock>);
+
+    SUBCASE("Read operation")
+    {
+        bool read = false;
+
+        sl.try_read([&] {
+            read = true;
+        });
+
+        REQUIRE(read);
+    }
+
+    SUBCASE("Write operation")
+    {
+        bool write = false;
+
+        sl.write([&] {
+            write = true;
+        });
+
+        REQUIRE(write);
+    }
+
+    SUBCASE("Concurrent read/write: Writer does not wait if reader blocks")
+    {
+        std::atomic<bool> finish_reader = false;
+        std::atomic<bool> reader_started = false;
+        std::atomic<bool> reader_finished = false;
+        bool write_succeeded = false;
+
+        std::thread reader([&]{
+            sl.try_read([&] {
+                reader_started = true;
+                while (!finish_reader) /* spin */;
+                reader_finished = true;
+            });
+        });
+
+        while (!reader_started) /* spin */;
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+
+        sl.write([&] {
+            write_succeeded = true;
+        });
+
+        REQUIRE(write_succeeded == true);
+        REQUIRE(reader_finished == false);
+
+        finish_reader = true;
+        reader.join();
+    }
+
+    SUBCASE("Concurrent read/write: Reader returns false while writer blocks")
+    {
+        std::atomic<bool> finish_writer = false;
+        std::atomic<bool> writer_started = false;
+        std::atomic<bool> writer_finished = false;
+        std::atomic<std::size_t> num_reads = 0;
+
+        std::thread writer([&]{
+            sl.write([&] {
+                writer_started = true;
+                while (!finish_writer) /* spin */;
+                writer_finished = true;
+            });
+        });
+
+        while (!writer_started) /* spin */;
+
+        REQUIRE_FALSE(sl.try_read([&] { ++num_reads; }));
+        // workaround
+        auto num_reads_temp = num_reads.load();
+        //REQUIRE(num_reads_temp == 1);
+
+        finish_writer = true;
+        while (!writer_finished) /* spin */;
+        std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+
+        REQUIRE(sl.try_read([&] { ++num_reads; }));
+//        REQUIRE(num_reads == 2);
+
+        writer.join();
+    }
+
+    SUBCASE("Concurrent reads do not block each other")
+    {
+        // TODO
+    }
+}
 
 TEST_CASE("crill::seqlock_object")
 {

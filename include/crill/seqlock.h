@@ -3,13 +3,51 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE.md or copy at http://boost.org/LICENSE_1_0.txt)
 
-#ifndef CRILL_SEQLOCK_OBJECT_H
-#define CRILL_SEQLOCK_OBJECT_H
+#ifndef CRILL_SEQLOCK_H
+#define CRILL_SEQLOCK_H
 
 #include <cstring>
 #include <atomic>
 
 namespace crill {
+
+class seqlock
+{
+public:
+    seqlock() = default;
+    seqlock(const seqlock&) = delete;
+    seqlock(seqlock&&) = delete;
+
+    template <typename Func>
+    bool try_read(Func&& read)
+    {
+        std::size_t seq1 = seq.load(std::memory_order_acquire);
+        if (seq1 % 2 != 0)
+            return false;
+
+        read();
+        std::atomic_thread_fence(std::memory_order_acquire);
+
+        std::size_t seq2 = seq.load(std::memory_order_relaxed);
+        return seq1 == seq2;
+    }
+
+    template <typename Func>
+    void write(Func&& write)
+    {
+        std::size_t old_seq = seq.load(std::memory_order_relaxed);
+        seq.store(old_seq + 1, std::memory_order_relaxed);
+
+        std::atomic_thread_fence(std::memory_order_release);
+        write();
+
+        seq.store(old_seq + 2, std::memory_order_release);
+    }
+
+private:
+    std::atomic<std::size_t> seq = 0;
+    static_assert(decltype(seq)::is_always_lock_free);
+};
 
 // A portable C++ implementation of a seqlock inspired by Hans Boehm's paper
 // "Can Seqlocks Get Along With Programming Language Memory Models?"
@@ -101,4 +139,4 @@ private:
 
 } // namespace crill
 
-#endif //CRILL_SEQLOCK_OBJECT_H
+#endif //CRILL_SEQLOCK_H

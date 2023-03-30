@@ -7,7 +7,7 @@ set(TESTS_SOURCES
         tests/main.cpp
         tests/progressive_backoff_wait_test.cpp
         tests/spin_mutex_test.cpp
-        tests/seqlock_object_test.cpp)
+        tests/seqlock_test.cpp)
 
 add_executable(tests ${TESTS_SOURCES})
 
