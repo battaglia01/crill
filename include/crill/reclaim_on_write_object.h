@@ -58,7 +58,7 @@ public:
             assert(rdr.min_epoch == 0);
 
             rdr.min_epoch.store(rdr.obj.current_epoch.load());
-            assert(rdr.min_epoch =! 0);
+            assert(rdr.min_epoch != 0);
 
             read_slot = rdr.obj.current_read_slot.load();
         }
