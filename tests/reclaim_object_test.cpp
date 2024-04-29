@@ -5,6 +5,7 @@
 
 #include <crill/reclaim_object.h>
 #include <crill/utility.h>
+#include <iostream>
 #include "tests.h"
 
 static_assert(!std::is_copy_constructible_v<crill::reclaim_object<int>>);
@@ -16,6 +17,8 @@ static_assert(!std::is_copy_constructible_v<crill::reclaim_object<int>>);
 static_assert(!std::is_move_constructible_v<crill::reclaim_object<int>>);
 static_assert(!std::is_copy_assignable_v<crill::reclaim_object<int>>);
 static_assert(!std::is_move_assignable_v<crill::reclaim_object<int>>);
+
+#define CHECK assert
 
 TEST_CASE("reclaim_object::reclaim_object()")
 {
@@ -282,10 +285,10 @@ TEST_CASE("reclaim_object reads, writes, and reclaim can all run concurrently")
 
     for (std::size_t i = 0; i < num_readers; ++i)
     {
-        reader_threads.emplace_back([&]{
+        reader_threads.emplace_back([&, i]{
             auto reader = obj.get_reader();
             std::string value;
-            std::size_t thread_idx = readers_started;
+            std::size_t thread_idx = i;
 
             while (!stop)
             {
