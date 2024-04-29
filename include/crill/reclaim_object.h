@@ -160,8 +160,9 @@ public:
     class write_ptr
     {
     public:
-        write_ptr(reclaim_object& obj)
+        write_ptr(reclaim_object& obj, bool reclaim_on_write)
           : obj(obj),
+            reclaim_on_write(reclaim_on_write),
             new_value(std::make_unique<T>(*obj.value.load()))
         {
             assert(new_value);
@@ -171,6 +172,9 @@ public:
         {
             assert(new_value);
             obj.exchange_and_retire(std::move(new_value));
+
+            if (reclaim_on_write)
+                obj.reclaim();
         }
 
         T& operator*()
@@ -193,12 +197,18 @@ public:
     private:
         reclaim_object& obj;
         std::unique_ptr<T> new_value;
+        bool reclaim_on_write;
     };
 
     // Returns: a write_ptr giving scoped write access to the current value.
     write_ptr write_lock()
     {
-        return write_ptr(*this);
+        return write_ptr(*this, false);
+    }
+
+    write_ptr write_and_reclaim_lock()
+    {
+        return write_ptr(*this, true);
     }
 
     // Effects: Deletes all previously overwritten values that are no longer
