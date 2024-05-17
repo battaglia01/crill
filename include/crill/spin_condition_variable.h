@@ -6,7 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <chrono>
-#include <crill/progressive_backoff_wait_cv.h>
+#include <crill/progressive_backoff_wait_cv_hybrid.h>
 
 namespace crill
 {
@@ -37,7 +37,7 @@ public:
     // Blocking is implemented by spinning with a progressive backoff strategy.
     void wait()
     {
-        progressive_backoff_wait_cv([this] {
+        progressive_backoff_wait_cv_hybrid([this] {
             bool expected = true;
             return flag.compare_exchange_strong(expected, false, std::memory_order_seq_cst);
         });
@@ -48,7 +48,7 @@ public:
     template <typename Predicate>
     void wait(Predicate&& pred)
     {
-        progressive_backoff_wait_cv(std::forward<Predicate>(pred));
+        progressive_backoff_wait_cv_hybrid(std::forward<Predicate>(pred));
     }
 
     // Effects: Blocks the current thread until the internal flag is set to true or the specified timeout duration has passed.
@@ -70,7 +70,7 @@ public:
     bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
         bool timeout_reached = false;
-        progressive_backoff_wait_cv([this, &timeout_time, &timeout_reached] {
+        progressive_backoff_wait_cv_hybrid([this, &timeout_time, &timeout_reached] {
             if (Clock::now() >= timeout_time)
             {
                 timeout_reached = true;
@@ -87,7 +87,7 @@ public:
     bool wait_until(Predicate&& pred, const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
         bool timeout_reached = false;
-        progressive_backoff_wait_cv([&pred, &timeout_time, &timeout_reached] {
+        progressive_backoff_wait_cv_hybrid([&pred, &timeout_time, &timeout_reached] {
             if (Clock::now() >= timeout_time)
             {
                 timeout_reached = true;
