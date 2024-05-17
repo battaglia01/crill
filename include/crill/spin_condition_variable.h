@@ -1,12 +1,3 @@
-// crill - the Cross-platform Real-time, I/O, and Low-Latency Library
-// Copyright (c) 2022 - Timur Doumler and Fabian Renn-Giles
-// Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE.md or copy at http://boost.org/LICENSE_1_0.txt)
-//
-// This is a version of condition_variable which was written by Mike Battaglia
-// and is not actually part of the crill library. It isn't much more than a
-// wrapper around progressive_backoff_wait.
-
 #ifndef CRILL_SPIN_CONDITION_VARIABLE_H
 #define CRILL_SPIN_CONDITION_VARIABLE_H
 
@@ -15,7 +6,7 @@
 #include <functional>
 #include <iostream>
 #include <chrono>
-#include <crill/progressive_backoff_wait.h>
+#include <crill/progressive_backoff_wait_cv.h>
 
 namespace crill
 {
@@ -27,12 +18,10 @@ namespace crill
 // but without the need for a mutex. This is particularly useful in real-time applications
 // where minimizing latency and avoiding blocking system calls is crucial.
 //
-// This implementation uses an integer counter to act like a semaphore, ensuring that
-// no notifications are missed. Each notify() call increments the counter, and each
-// successful wait() call decrements it. If multiple threads call notify() simultaneously,
-// there may be a slight spin as wait() clears immediately once for each notify() call.
+// This implementation uses an atomic flag with compare-and-set to ensure that the flag
+// is checked and cleared atomically, avoiding race conditions.
 //
-// wait() is implemented with crill::progressive_backoff_wait, to prevent wasting energy and
+// wait() is implemented with crill::progressive_backoff_wait_cv, to prevent wasting energy and
 // allow other threads to progress.
 //
 // wait_for() and wait_until() provide timed waiting functionality.
@@ -42,14 +31,16 @@ namespace crill
 class spin_condition_variable
 {
 public:
-    spin_condition_variable() : counter(0) {}
+    spin_condition_variable() : flag(false) {}
 
-    // Effects: Blocks the current thread until the internal counter is greater than zero.
+    // Effects: Blocks the current thread until the internal flag is set to true.
     // Blocking is implemented by spinning with a progressive backoff strategy.
     void wait()
     {
-        progressive_backoff_wait([this] { return counter.load(std::memory_order_seq_cst) > 0; });
-        counter.fetch_sub(1, std::memory_order_seq_cst); // Decrement the counter after successful wait
+        progressive_backoff_wait_cv([this] {
+            bool expected = true;
+            return flag.compare_exchange_strong(expected, false, std::memory_order_seq_cst);
+        });
     }
 
     // Effects: Blocks the current thread until the predicate returns true.
@@ -57,10 +48,10 @@ public:
     template <typename Predicate>
     void wait(Predicate&& pred)
     {
-        progressive_backoff_wait(std::forward<Predicate>(pred));
+        progressive_backoff_wait_cv(std::forward<Predicate>(pred));
     }
 
-    // Effects: Blocks the current thread until the internal counter is greater than zero or the specified timeout duration has passed.
+    // Effects: Blocks the current thread until the internal flag is set to true or the specified timeout duration has passed.
     template <typename Rep, typename Period>
     bool wait_for(const std::chrono::duration<Rep, Period>& timeout)
     {
@@ -74,23 +65,20 @@ public:
         return wait_until(std::forward<Predicate>(pred), std::chrono::steady_clock::now() + timeout);
     }
 
-    // Effects: Blocks the current thread until the internal counter is greater than zero or the specified time point is reached.
+    // Effects: Blocks the current thread until the internal flag is set to true or the specified time point is reached.
     template <typename Clock, typename Duration>
     bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
         bool timeout_reached = false;
-        progressive_backoff_wait([this, &timeout_time, &timeout_reached] {
+        progressive_backoff_wait_cv([this, &timeout_time, &timeout_reached] {
             if (Clock::now() >= timeout_time)
             {
                 timeout_reached = true;
                 return true;
             }
-            return counter.load(std::memory_order_seq_cst) > 0;
+            bool expected = true;
+            return flag.compare_exchange_strong(expected, false, std::memory_order_seq_cst);
         });
-        if (!timeout_reached)
-        {
-            counter.fetch_sub(1, std::memory_order_seq_cst); // Decrement the counter after successful wait
-        }
         return !timeout_reached;
     }
 
@@ -99,7 +87,7 @@ public:
     bool wait_until(Predicate&& pred, const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
         bool timeout_reached = false;
-        progressive_backoff_wait([&pred, &timeout_time, &timeout_reached] {
+        progressive_backoff_wait_cv([&pred, &timeout_time, &timeout_reached] {
             if (Clock::now() >= timeout_time)
             {
                 timeout_reached = true;
@@ -114,13 +102,12 @@ public:
     // This is a non-blocking operation and ensures memory visibility.
     void notify()
     {
-        counter.fetch_add(1, std::memory_order_seq_cst);
+        flag.store(true, std::memory_order_seq_cst);
     }
 
 private:
-    std::atomic<int> counter;
+    std::atomic<bool> flag;
 };
 
 } // namespace crill
-
-#endif // CRILL_SPIN_CONDITION_VARIABLE_H
+#endif //CRILL_SPIN_CONDITION_VARIABLE_H
