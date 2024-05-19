@@ -1,5 +1,5 @@
-#ifndef CRILL_SPIN_CONDITION_VARIABLE_H
-#define CRILL_SPIN_CONDITION_VARIABLE_H
+#ifndef CRILL_spin_condition_variable_hybrid_H
+#define CRILL_spin_condition_variable_hybrid_H
 
 #include <atomic>
 #include <thread>
@@ -11,10 +11,10 @@
 namespace crill
 {
 
-// crill::spin_condition_variable is a mutex-free condition variable with progressive
+// crill::spin_condition_variable_hybrid is a mutex-free condition variable with progressive
 // backoff for safely and efficiently synchronizing a real-time thread with other threads.
 //
-// crill::spin_condition_variable provides functionality similar to std::condition_variable,
+// crill::spin_condition_variable_hybrid provides functionality similar to std::condition_variable,
 // but without the need for a mutex. This is particularly useful in real-time applications
 // where minimizing latency and avoiding blocking system calls is crucial.
 //
@@ -26,12 +26,12 @@ namespace crill
 //
 // wait_for() and wait_until() provide timed waiting functionality.
 //
-// crill::spin_condition_variable is not designed for use cases that require a traditional
+// crill::spin_condition_variable_hybrid is not designed for use cases that require a traditional
 // condition variable with a mutex for complex waiting and notification patterns.
-class spin_condition_variable
+class spin_condition_variable_hybrid
 {
 public:
-    spin_condition_variable() : flag(false) {}
+    spin_condition_variable_hybrid() : flag(false) {}
 
     // Effects: Blocks the current thread until the internal flag is set to true.
     // Blocking is implemented by spinning with a progressive backoff strategy.
@@ -110,4 +110,4 @@ private:
 };
 
 } // namespace crill
-#endif //CRILL_SPIN_CONDITION_VARIABLE_H
+#endif //CRILL_spin_condition_variable_hybrid_H
