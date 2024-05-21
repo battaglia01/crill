@@ -31,10 +31,10 @@ namespace crill {
 // or ARM based machine.
 //
 // On platforms other than x86, x86_64, and arm64, no implementation is currently available.
-template <unsigned long long max_ns, unsigned long long sleep_threshold_ns, typename Predicate>
+template <unsigned long long min_ns, unsigned long long max_ns, unsigned long long sleep_threshold_ns, bool use_isb, typename Predicate>
 void progressive_backoff_wait_pure_exp(Predicate&& pred)
 {
-    impl::progressive_backoff_wait_pure_exp<max_ns, sleep_threshold_ns>(std::forward<Predicate>(pred));
+    impl::progressive_backoff_wait_pure_exp<min_ns, max_ns, sleep_threshold_ns, use_isb>(std::forward<Predicate>(pred));
 }
 
 } // namespace crill

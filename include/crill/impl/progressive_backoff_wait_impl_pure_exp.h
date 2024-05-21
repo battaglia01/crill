@@ -1,3 +1,5 @@
+// forceinline with -O0??
+
 // crill - the Cross-platform Real-time, I/O, and Low-Latency Library
 // Copyright (c) 2022 - Timur Doumler and Fabian Renn-Giles
 // Distributed under the Boost Software License, Version 1.0.
@@ -7,57 +9,98 @@
 #define CRILL_PROGRESSIVE_BACKOFF_WAIT_IMPL_PURE_EXP_H
 
 #include <thread>
+#include <cmath>
+#include <iostream>
 
-#if CRILL_INTEL
-    #include <emmintrin.h>
-    constexpr int PAUSE_TIME = 35; // ns, as benchmarked by Timur
-#elif CRILL_ARM_64BIT
-    #include <arm_acle.h>
-    constexpr int PAUSE_TIME = 1333; // ns, as benchmarked by Timur
+#if defined(_MSC_VER)
+    #define FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+    #define FORCEINLINE __attribute__((always_inline)) inline
+#else
+    #error "Compiler not supported!"
+#endif
+
+#if CRILL_ARM_64BIT
+    #if defined(_MSC_VER)
+        #include <intrin.h>
+        #define PAUSE_ASM() if constexpr (use_isb) { __isb(0); } else { __wfe(); }
+    #elif defined(__GNUC__) || defined(__clang__)
+        #define PAUSE_ASM() if constexpr (use_isb) { asm volatile ("isb"); } else { asm volatile ("wfe"); }
+    #endif
+#elif CRILL_INTEL
+    #if defined(_MSC_VER)
+        #include <emmintrin.h>
+        #define PAUSE_ASM() _mm_pause();
+    #elif defined(__GNUC__) || defined(__clang__)
+        #define PAUSE_ASM() asm volatile ("pause")
+    #endif
 #else
     #error "Platform not supported!"
 #endif
 
-// does an unrolled loop of _mm_pause() or __wfe() N times
-template <unsigned long long N>
-constexpr void do_pause() {
-    for (unsigned long long i = 0; i < N; ++i) {
-        #if CRILL_INTEL
-            _mm_pause();
-        #elif CRILL_ARM_64BIT
-            __wfe();
-        #endif
+// partly unrolled loop
+template<unsigned long long N, bool use_isb, unsigned long long max_unroll=131072>
+FORCEINLINE constexpr void do_pause() {
+    if constexpr(N > max_unroll) {
+        for (unsigned long long i = 0; i < N / max_unroll; i++) {
+            do_pause<max_unroll>();
+        }
+        do_pause<N % max_unroll>();
+    }
+    else {
+        if constexpr (N > 1ULL) {
+            do_pause<N / 2ULL, use_isb>();
+            do_pause<N / 2ULL, use_isb>();
+            do_pause<N % 2ULL, use_isb>();
+        } else if constexpr (N == 1ULL) {
+            PAUSE_ASM();
+        }
     }
 }
 
 #define PAUSE_AND_CHECK(N) \
-    if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) > sleep_threshold_ns) { \
-        if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
-            if (pred()) \
-                return; \
-            std::this_thread::sleep_for(std::chrono::nanoseconds(PAUSE_TIME * static_cast<unsigned long long>(N))); \
-        } else while (true) { \
-            if (pred()) \
-                return; \
-            std::this_thread::sleep_for(std::chrono::nanoseconds(max_ns)); \
+    if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= min_ns) { \
+        if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= sleep_threshold_ns) { \
+            if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
+            /*ASM_("nop; nop; nop; nop; nop;"); */ \
+                if (pred()) \
+                    return; \
+                std::this_thread::sleep_for(std::chrono::nanoseconds(PAUSE_TIME * static_cast<unsigned long long>(N))); \
+            } else while (true) { \
+            /*ASM_("nop; nop; nop; nop; nop; nop"); */ \
+                if (pred()) \
+                    return; \
+                std::this_thread::sleep_for(std::chrono::nanoseconds(max_ns)); \
+            } \
+        } else { \
+            if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
+            /*ASM_("nop; nop; nop; nop; nop; nop; nop"); */ \
+                if (pred()) \
+                    return; \
+                do_pause<N, use_isb>(); \
+            } else while (true) { \
+            /*ASM_("nop; nop; nop; nop; nop; nop; nop; nop"); */ \
+                if (pred()) \
+                    return; \
+                do_pause<max_ns / PAUSE_TIME, use_isb>(); /* should be max_ns */ \
+            } \
         } \
-    } else { \
-        if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
-            if (pred()) \
-                return; \
-            do_pause<N>(); \
-        } else while (true) { \
-            if (pred()) \
-                return; \
-            do_pause<max_ns/PAUSE_TIME>(); \
-            std::this_thread::yield(); \
-        } \
-    }
+    } /*else { \
+        ASM_("nop; nop; nop; nop;"); \
+    }*/
+
 
 namespace crill::impl {
 
-template <unsigned long long max_ns, unsigned long long sleep_threshold_ns, typename Predicate>
+template <unsigned long long min_ns, unsigned long long max_ns, unsigned long long sleep_threshold_ns, bool use_isb, typename Predicate>
 void progressive_backoff_wait_pure_exp(Predicate&& pred) {
+    // set pause time based on platform and use_isb
+#if CRILL_INTEL
+    constexpr unsigned long long int PAUSE_TIME = 35;
+#elif CRILL_ARM_64BIT
+    constexpr unsigned long long int PAUSE_TIME = (use_isb) ? 10 : 970;
+#endif
+
     PAUSE_AND_CHECK(1);
     PAUSE_AND_CHECK(2);
     PAUSE_AND_CHECK(4);
@@ -78,7 +121,7 @@ void progressive_backoff_wait_pure_exp(Predicate&& pred) {
     PAUSE_AND_CHECK(131072);
     PAUSE_AND_CHECK(262144);
     PAUSE_AND_CHECK(524288);
-    PAUSE_AND_CHECK(1048576); // at this point we have 1 MB of just pause statements - should just loop
+    PAUSE_AND_CHECK(1048576);
     PAUSE_AND_CHECK(2097152);
     PAUSE_AND_CHECK(4194304);
     PAUSE_AND_CHECK(8388608);
