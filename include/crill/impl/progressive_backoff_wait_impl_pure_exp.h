@@ -39,67 +39,67 @@
 #endif
 
 // partly unrolled loop
-template<unsigned long long N, bool use_isb, unsigned long long max_unroll=131072>
+template<unsigned long long N, bool use_isb, unsigned long long max_unroll=64>
 FORCEINLINE constexpr void do_pause() {
     if constexpr(N > max_unroll) {
         for (unsigned long long i = 0; i < N / max_unroll; i++) {
-            do_pause<max_unroll>();
+            do_pause<max_unroll, use_isb, max_unroll>();
         }
-        do_pause<N % max_unroll>();
+        do_pause<N % max_unroll, use_isb, max_unroll>();
     }
     else {
         if constexpr (N > 1ULL) {
-            do_pause<N / 2ULL, use_isb>();
-            do_pause<N / 2ULL, use_isb>();
-            do_pause<N % 2ULL, use_isb>();
+            do_pause<N / 2ULL, use_isb, max_unroll>();
+            do_pause<N / 2ULL, use_isb, max_unroll>();
+            do_pause<N % 2ULL, use_isb, max_unroll>();
         } else if constexpr (N == 1ULL) {
             PAUSE_ASM();
         }
     }
 }
 
-#define PAUSE_AND_CHECK(N) \
-    if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= min_ns) { \
-        if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= sleep_threshold_ns) { \
-            if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
-            /*ASM_("nop; nop; nop; nop; nop;"); */ \
-                if (pred()) \
-                    return; \
-                std::this_thread::sleep_for(std::chrono::nanoseconds(PAUSE_TIME * static_cast<unsigned long long>(N))); \
-            } else while (true) { \
-            /*ASM_("nop; nop; nop; nop; nop; nop"); */ \
-                if (pred()) \
-                    return; \
-                std::this_thread::sleep_for(std::chrono::nanoseconds(max_ns)); \
-            } \
-        } else { \
-            if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
-            /*ASM_("nop; nop; nop; nop; nop; nop; nop"); */ \
-                if (pred()) \
-                    return; \
-                do_pause<N, use_isb>(); \
-            } else while (true) { \
-            /*ASM_("nop; nop; nop; nop; nop; nop; nop; nop"); */ \
-                if (pred()) \
-                    return; \
-                do_pause<max_ns / PAUSE_TIME, use_isb>(); /* should be max_ns */ \
-            } \
-        } \
-    } /*else { \
-        ASM_("nop; nop; nop; nop;"); \
-    }*/
-
-
 namespace crill::impl {
 
 template <unsigned long long min_ns, unsigned long long max_ns, unsigned long long sleep_threshold_ns, bool use_isb, typename Predicate>
 void progressive_backoff_wait_pure_exp(Predicate&& pred) {
     // set pause time based on platform and use_isb
-#if CRILL_INTEL
-    constexpr unsigned long long int PAUSE_TIME = 35;
-#elif CRILL_ARM_64BIT
-    constexpr unsigned long long int PAUSE_TIME = (use_isb) ? 10 : 970;
-#endif
+    #if CRILL_INTEL
+        constexpr unsigned long long int PAUSE_TIME = 35;
+    #elif CRILL_ARM_64BIT
+        constexpr unsigned long long int PAUSE_TIME = (use_isb) ? 10 : 970;
+    #endif
+
+    #define PAUSE_AND_CHECK(N) \
+        if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= min_ns) { \
+            if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) >= sleep_threshold_ns) { \
+                if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
+                /*ASM_("nop; nop; nop; nop; nop;"); */ \
+                    if (pred()) \
+                        return; \
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(PAUSE_TIME * static_cast<unsigned long long>(N))); \
+                } else while (true) { \
+                /*ASM_("nop; nop; nop; nop; nop; nop"); */ \
+                    if (pred()) \
+                        return; \
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(max_ns)); \
+                } \
+            } else { \
+                if constexpr ((PAUSE_TIME * static_cast<unsigned long long>(N)) < max_ns) { \
+                /*ASM_("nop; nop; nop; nop; nop; nop; nop"); */ \
+                    if (pred()) \
+                        return; \
+                    do_pause<N, use_isb>(); \
+                } else while (true) { \
+                /*ASM_("nop; nop; nop; nop; nop; nop; nop; nop"); */ \
+                    if (pred()) \
+                        return; \
+                    do_pause<max_ns / PAUSE_TIME, use_isb>(); /* should be max_ns */ \
+                } \
+            } \
+        } /*else { \
+            ASM_("nop; nop; nop; nop;"); \
+        }*/
+
 
     PAUSE_AND_CHECK(1);
     PAUSE_AND_CHECK(2);

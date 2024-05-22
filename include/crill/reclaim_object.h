@@ -6,6 +6,7 @@
 #ifndef CRILL_RECLAIM_OBJECT_H
 #define CRILL_RECLAIM_OBJECT_H
 
+#include <cassert>
 #include <utility>
 #include <atomic>
 #include <thread>

@@ -28,7 +28,7 @@ namespace crill
 //
 // crill::spin_condition_variable_pure_exp is not designed for use cases that require a traditional
 // condition variable with a mutex for complex waiting and notification patterns.
-template <unsigned long long min_ns, unsigned long long max_ns, unsigned long long sleep_threshold_ns, bool use_isb=true>
+template <unsigned long long min_ns, unsigned long long max_ns, unsigned long long sleep_threshold_ns, bool use_isb=false>
 class spin_condition_variable_pure_exp
 {
 public:
@@ -53,6 +53,7 @@ public:
     }
 
     // Effects: Blocks the current thread until the internal flag is set to true or the specified timeout duration has passed.
+    // Returns true if the flag was set to true, false if the timeout was reached.
     template <typename Rep, typename Period>
     bool wait_for(const std::chrono::duration<Rep, Period>& timeout)
     {
@@ -60,6 +61,7 @@ public:
     }
 
     // Effects: Blocks the current thread until the predicate returns true or the specified timeout duration has passed.
+    // Returns true if the predicate returned true, false if the timeout was reached.
     template <typename Predicate, typename Rep, typename Period>
     bool wait_for(Predicate&& pred, const std::chrono::duration<Rep, Period>& timeout)
     {
@@ -67,6 +69,7 @@ public:
     }
 
     // Effects: Blocks the current thread until the internal flag is set to true or the specified time point is reached.
+    // Returns true if the flag was set to true, false if the timeout was reached.
     template <typename Clock, typename Duration>
     bool wait_until(const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
@@ -84,6 +87,7 @@ public:
     }
 
     // Effects: Blocks the current thread until the predicate returns true or the specified time point is reached.
+    // Returns true if the predicate returned true, false if the timeout was reached.
     template <typename Predicate, typename Clock, typename Duration>
     bool wait_until(Predicate&& pred, const std::chrono::time_point<Clock, Duration>& timeout_time)
     {
