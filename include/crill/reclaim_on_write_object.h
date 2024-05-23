@@ -35,7 +35,7 @@ public:
     // Effects: constructs a reclaim_on_write_object containing a value constructed with
     // the constructor arguments provided.
     template <typename... Args>
-    reclaim_on_write_object(Args... args)
+    reclaim_on_write_object(Args&&... args)
       : slots{{T(std::forward<Args>(args)...), T(std::forward<Args>(args)...)}}
     {}
 

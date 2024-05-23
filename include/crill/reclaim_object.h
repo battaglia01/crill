@@ -49,7 +49,7 @@ public:
     // Effects: constructs a reclaim_object containing a value constructed with
     // the constructor arguments provided.
     template <typename... Args>
-    reclaim_object(Args... args)
+    reclaim_object(Args&&... args)
       : value(std::make_unique<T>(std::forward<Args>(args)...))
     {}
 
