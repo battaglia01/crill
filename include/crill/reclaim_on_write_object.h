@@ -133,7 +133,7 @@ public:
     // provided constructor arguments.
     // Note: Blocks until all readers accessing the old value have finished.
     template <typename... Args>
-    void update(Args... args)
+    void update(Args&&... args)
     {
         std::uint8_t write_slot = current_read_slot.load() ^ 1;
         slots[write_slot] = T(std::forward<Args>(args)...);

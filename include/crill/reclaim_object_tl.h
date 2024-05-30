@@ -3,8 +3,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE.md or copy at http://boost.org/LICENSE_1_0.txt)
 
-#ifndef CRILL_RECLAIM_OBJECT_H
-#define CRILL_RECLAIM_OBJECT_H
+#ifndef CRILL_RECLAIM_OBJECT_TL_H
+#define CRILL_RECLAIM_OBJECT_TL_H
 
 #include <cassert>
 #include <utility>
@@ -18,8 +18,12 @@
 namespace crill
 {
 
-// crill::reclaim_object stores a value of type T and provides concurrent
+// crill::reclaim_object_tl stores a value of type T and provides concurrent
 // read and write access to it. Multiple readers and writers are supported.
+// 
+// In this version, readers are automatically generated for each thread. The
+// maximum number of threads is specified by the template parameter
+// max_num_threads, which defaults to 128.
 //
 // Readers are guaranteed to always be wait-free. Readers will never block
 // writers, but writers may block other writers.
@@ -32,32 +36,29 @@ namespace crill
 // 1) reclamation is managed per object, not in a single global domain
 // 2) reclamation does not happen automatically: the user needs to explicitly
 //    call reclaim() periodically (e.g., on a timer).
-template <typename T>
-class reclaim_object
+template <typename T, size_t max_num_threads=128>
+class reclaim_object_tl
 {
-    // TODO:
-    // allow the user to specify whether they need single or multiple readers
-    // and single or multiple writers. For the single-reader and single-writer
-    // cases, enable more efficient implementations.
-
 public:
-    // Effects: constructs a reclaim_object containing a default-constructed value.
-    reclaim_object()
-      : value(std::make_unique<T>())
-    {}
+    // Effects: constructs a reclaim_object_tl containing a default-constructed value.
+    reclaim_object_tl()
+      : value(std::make_unique<T>()), thread_readers(max_num_threads, reader(*this))
+    {
+    }
 
-    // Effects: constructs a reclaim_object containing a value constructed with
+    // Effects: constructs a reclaim_object_tl containing a value constructed with
     // the constructor arguments provided.
     template <typename... Args>
-    reclaim_object(Args&&... args)
-      : value(std::make_unique<T>(std::forward<Args>(args)...))
-    {}
+    reclaim_object_tl(Args&&... args)
+      : value(std::make_unique<T>(std::forward<Args>(args)...)), thread_readers(max_num_threads, reader(*this))
+    {
+    }
 
-    // reclaim_object is non-copyable and non-movable.
-    reclaim_object(reclaim_object&&) = delete;
-    reclaim_object& operator=(reclaim_object&&) = delete;
-    reclaim_object(const reclaim_object&) = delete;
-    reclaim_object& operator=(const reclaim_object&) = delete;
+    // reclaim_object_tl is non-copyable and non-movable.
+    reclaim_object_tl(reclaim_object_tl&&) = delete;
+    reclaim_object_tl& operator=(reclaim_object_tl&&) = delete;
+    reclaim_object_tl(const reclaim_object_tl&) = delete;
+    reclaim_object_tl& operator=(const reclaim_object_tl&) = delete;
 
     // Reading the value must happen through a reader class.
     class reader;
@@ -109,14 +110,19 @@ public:
     class reader
     {
     public:
-        reader(reclaim_object& obj) : obj(obj)
+        reader(reclaim_object_tl& obj) : obj(obj)
         {
-            obj.register_reader(this);
+            // no need to register or unregister thread readers as they're
+            // pre-allocated in the constructor of reclaim_object_tl
         }
 
         ~reader()
         {
-            obj.unregister_reader(this);
+        }
+
+        // needed just to initialize the array
+        reader(const reader& other) : obj(other.obj)
+        {
         }
 
         // Returns: a copy of the current value.
@@ -135,15 +141,34 @@ public:
         }
 
     private:
-        friend class reclaim_object;
+        friend class reclaim_object_tl;
         friend class read_ptr;
-        reclaim_object& obj;
+        reclaim_object_tl& obj;
         std::atomic<std::uint64_t> min_epoch = 0;
     };
 
-    reader get_reader()
+    reader& get_reader()
     {
-        return reader(*this);
+        // This is a process-wide counter. Its purpose is to assign a unique
+        // low-numbered ID to each thread that requests a reader. This ID is
+        // used to index into the thread_readers vector.
+        static std::atomic<size_t> thread_counter = 0;
+
+        // Initialize thread_id once per thread using a lambda function.
+        thread_local size_t thread_id = []() -> size_t {
+            size_t id = thread_counter.fetch_add(1);
+            if (id >= max_num_threads) {
+                throw std::runtime_error("Exceeded maximum number of supported threads.");
+            }
+            return id;
+        }();
+
+        return thread_readers[thread_id];
+    }
+
+    read_ptr read_lock()
+    {
+        return get_reader().read_lock();
     }
 
     // Effects: Updates the current value to a new value constructed from the
@@ -161,7 +186,7 @@ public:
     class write_ptr
     {
     public:
-        write_ptr(reclaim_object& obj, bool reclaim_on_write)
+        write_ptr(reclaim_object_tl& obj, bool reclaim_on_write)
           : obj(obj),
             reclaim_on_write(reclaim_on_write),
             new_value(std::make_unique<T>(*obj.value.load()))
@@ -196,7 +221,7 @@ public:
         write_ptr& operator=(const write_ptr&) = delete;
 
     private:
-        reclaim_object& obj;
+        reclaim_object_tl& obj;
         std::unique_ptr<T> new_value;
         bool reclaim_on_write;
     };
@@ -242,29 +267,10 @@ private:
             std::move(old_value)});
     }
 
-    void register_reader(reader* rdr)
-    {
-        assert(rdr != nullptr);
-        std::scoped_lock lock(readers_mtx);
-        readers.push_back(rdr);
-    }
-
-    void unregister_reader(reader* rdr)
-    {
-        assert(rdr != nullptr);
-        std::scoped_lock lock(readers_mtx);
-
-        auto iter = std::find(readers.begin(), readers.end(), rdr);
-        assert(iter != readers.end());
-        readers.erase(iter);
-    }
-
     bool has_readers_using_epoch(std::uint64_t epoch) noexcept
     {
-        std::scoped_lock lock(readers_mtx);
-        return std::any_of(readers.begin(), readers.end(), [epoch](auto* reader){
-            assert(reader);
-            std::uint64_t reader_epoch = reader->min_epoch.load();
+        return std::any_of(thread_readers.begin(), thread_readers.end(), [epoch](auto& reader) {
+            std::uint64_t reader_epoch = reader.min_epoch.load();
             return reader_epoch != 0 && reader_epoch <= epoch;
         });
     }
@@ -276,8 +282,7 @@ private:
     };
 
     crill::atomic_unique_ptr<T> value;
-    std::vector<reader*> readers;
-    std::mutex readers_mtx;
+    std::vector<reader> thread_readers;
     std::vector<zombie> zombies;
     std::mutex zombies_mtx;
     std::atomic<std::uint64_t> current_epoch = 1;
@@ -288,4 +293,4 @@ private:
 
 } // namespace crill
 
-#endif //CRILL_RECLAIM_OBJECT_H
+#endif //CRILL_RECLAIM_OBJECT_TL_H

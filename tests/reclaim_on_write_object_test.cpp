@@ -29,7 +29,7 @@ TEST_CASE("reclaim_on_write_object::reclaim_on_write_object()")
     CHECK(reader.get_value().i == 42);
 }
 
-TEST_CASE("reclaim_on_write_object::reclaim_on_write_object(Args...)")
+TEST_CASE("reclaim_on_write_object::reclaim_on_write_object(Args&&...)")
 {
     crill::reclaim_on_write_object<std::string> obj(3, 'x');
     auto reader = obj.get_reader();

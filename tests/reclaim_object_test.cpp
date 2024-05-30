@@ -33,7 +33,7 @@ TEST_CASE("reclaim_object::reclaim_object()")
     CHECK(reader.get_value().i == 42);
 }
 
-TEST_CASE("reclaim_object::reclaim_object(Args...)")
+TEST_CASE("reclaim_object::reclaim_object(Args&&...)")
 {
     crill::reclaim_object<std::string> obj(3, 'x');
     auto reader = obj.get_reader();

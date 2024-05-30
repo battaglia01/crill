@@ -60,11 +60,11 @@ Note that this method blocks writers, so it should be called from a non-realtime
 
 - `reclaim_object()`
   - *Constructor*: Initializes a `reclaim_object` with a default-constructed value of type `T`.
-- `reclaim_object(Args... args)`
+- `reclaim_object(Args&&... args)`
   - *Constructor*: Initializes a `reclaim_object` with a value constructed with the provided constructor arguments.
 - `get_reader()`
   - *Function*: Returns a `reader` object associated with the `reclaim_object`.
-- `update(Args... args)`
+- `update(Args&&... args)`
   - *Function*: Updates the current value to a new value constructed from the provided constructor arguments.
 - `write_lock()`
   - *Function*: Returns a `write_ptr` giving scoped write access to the current value.

@@ -59,11 +59,11 @@ Unlike `reclaim_object`, there is no need to manually call a `reclaim` function.
 
 - `reclaim_on_write_object()`
   - *Constructor*: Initializes a `reclaim_on_write_object` with a default-constructed value of type `T`.
-- `reclaim_on_write_object(Args... args)`
+- `reclaim_on_write_object(Args&&... args)`
   - *Constructor*: Initializes a `reclaim_on_write_object` with a value constructed with the provided constructor arguments.
 - `get_reader()`
   - *Function*: Returns a `reader` object associated with the `reclaim_on_write_object`.
-- `update(Args... args)`
+- `update(Args&&... args)`
   - *Function*: Updates the current value to a new value constructed from the provided constructor arguments. Blocks until all readers accessing the old value have finished.
 - `write_lock()`
   - *Function*: Returns a `write_ptr` giving scoped write access to the current value.

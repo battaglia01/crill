@@ -56,7 +56,7 @@ public:
         flag.clear(std::memory_order_release);
     }
 
-private:
+protected:
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
 };
 

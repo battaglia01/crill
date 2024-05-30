@@ -37,7 +37,7 @@ public:
     // Effects: Constructs an atomic_unique_ptr containing a new unique_ptr
     // managing an object constructed from the given constructor arguments.
     template <typename... Args>
-    atomic_unique_ptr(Args... args)
+    atomic_unique_ptr(Args&&... args)
       : atomic_unique_ptr(std::make_unique<T>(std::forward<Args>(args)...))
     {
     }
