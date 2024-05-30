@@ -18,7 +18,7 @@ static_assert(!std::is_move_constructible_v<crill::reclaim_object<int>>);
 static_assert(!std::is_copy_assignable_v<crill::reclaim_object<int>>);
 static_assert(!std::is_move_assignable_v<crill::reclaim_object<int>>);
 
-#define CHECK assert
+//#define CHECK assert
 
 TEST_CASE("reclaim_object::reclaim_object()")
 {

@@ -6,6 +6,7 @@
 #ifndef CRILL_RECLAIM_OBJECT_TL_H
 #define CRILL_RECLAIM_OBJECT_TL_H
 
+#include <iostream>
 #include <cassert>
 #include <utility>
 #include <atomic>
@@ -42,16 +43,27 @@ class reclaim_object_tl
 public:
     // Effects: constructs a reclaim_object_tl containing a default-constructed value.
     reclaim_object_tl()
-      : value(std::make_unique<T>()), thread_readers(max_num_threads, reader(*this))
+      : value(std::make_unique<T>())
     {
+        init_thread_readers();
     }
 
     // Effects: constructs a reclaim_object_tl containing a value constructed with
     // the constructor arguments provided.
     template <typename... Args>
     reclaim_object_tl(Args&&... args)
-      : value(std::make_unique<T>(std::forward<Args>(args)...)), thread_readers(max_num_threads, reader(*this))
+      : value(std::make_unique<T>(std::forward<Args>(args)...))
     {
+        init_thread_readers();
+    }
+
+    void init_thread_readers()
+    {
+        thread_readers.reserve(max_num_threads);
+        for (size_t i = 0; i < max_num_threads; ++i)
+        {
+            thread_readers.emplace_back(*this);
+        }
     }
 
     // reclaim_object_tl is non-copyable and non-movable.
@@ -70,31 +82,39 @@ public:
         read_ptr(reader& rdr) noexcept
           : rdr(rdr)
         {
-            assert(rdr.min_epoch == 0);
+            rdr.num_reading++;
+            if (rdr.min_epoch == 0)
+            {
+                // This is the first time we've gotten the lock
+                rdr.min_epoch.store(rdr.obj.current_epoch.load());
+                assert(rdr.min_epoch != 0);
 
-            rdr.min_epoch.store(rdr.obj.current_epoch.load());
-            assert(rdr.min_epoch != 0);
-
-            value_read = rdr.obj.value.load();
-            assert(value_read);
+                rdr.value_read = rdr.obj.value.load();
+                assert(rdr.value_read);
+            }
         }
 
         ~read_ptr()
         {
             assert(rdr.min_epoch != 0);
-            rdr.min_epoch.store(0);
+            assert(rdr.num_reading > 0);
+            if (--rdr.num_reading == 0) {
+                // This is the last reader to release the lock
+                rdr.value_read = nullptr;
+                rdr.min_epoch.store(0);
+            }
         }
 
         const T& operator*() const
         {
-            assert(value_read);
-            return *value_read;
+            assert(rdr.value_read);
+            return *rdr.value_read;
         }
 
         const T* operator->() const
         {
-            assert(value_read);
-            return value_read;
+            assert(rdr.value_read);
+            return rdr.value_read;
         }
 
         read_ptr(read_ptr&&) = delete;
@@ -104,7 +124,6 @@ public:
 
     private:
         reader& rdr;
-        T* value_read = nullptr;
     };
 
     class reader
@@ -120,10 +139,11 @@ public:
         {
         }
 
-        // needed just to initialize the array
-        reader(const reader& other) : obj(other.obj)
+        // make move constructor that isn't delete
+        reader(reader&& other): obj(other.obj), min_epoch(other.min_epoch.load()), value_read(other.value_read), num_reading(other.num_reading)
         {
         }
+
 
         // Returns: a copy of the current value.
         // Non-blocking guarantees: wait-free if the copy constructor of
@@ -143,8 +163,11 @@ public:
     private:
         friend class reclaim_object_tl;
         friend class read_ptr;
+
         reclaim_object_tl& obj;
         std::atomic<std::uint64_t> min_epoch = 0;
+        T *value_read = nullptr; // goes here for reentrancy
+        int num_reading = 0;
     };
 
     reader& get_reader()
@@ -162,8 +185,8 @@ public:
             }
             return id;
         }();
-
-        return thread_readers[thread_id];
+        auto tmp_thread_id = thread_id;
+        return thread_readers.at(tmp_thread_id);
     }
 
     read_ptr read_lock()
