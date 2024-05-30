@@ -57,15 +57,6 @@ public:
         init_thread_readers();
     }
 
-    void init_thread_readers()
-    {
-        thread_readers.reserve(max_num_threads);
-        for (size_t i = 0; i < max_num_threads; ++i)
-        {
-            thread_readers.emplace_back(*this);
-        }
-    }
-
     // reclaim_object_tl is non-copyable and non-movable.
     reclaim_object_tl(reclaim_object_tl&&) = delete;
     reclaim_object_tl& operator=(reclaim_object_tl&&) = delete;
@@ -172,11 +163,6 @@ public:
 
     reader& get_reader()
     {
-        // This is a process-wide counter. Its purpose is to assign a unique
-        // low-numbered ID to each thread that requests a reader. This ID is
-        // used to index into the thread_readers vector.
-        static std::atomic<size_t> thread_counter = 0;
-
         // Initialize thread_id once per thread using a lambda function.
         thread_local size_t thread_id = []() -> size_t {
             size_t id = thread_counter.fetch_add(1);
@@ -279,6 +265,15 @@ public:
     }
 
 private:
+    void init_thread_readers()
+    {
+        thread_readers.reserve(max_num_threads);
+        for (size_t i = 0; i < max_num_threads; ++i)
+        {
+            thread_readers.emplace_back(*this);
+        }
+    }
+
     void exchange_and_retire(std::unique_ptr<T> new_value)
     {
         assert(new_value != nullptr);
@@ -292,7 +287,8 @@ private:
 
     bool has_readers_using_epoch(std::uint64_t epoch) noexcept
     {
-        return std::any_of(thread_readers.begin(), thread_readers.end(), [epoch](auto& reader) {
+        auto max_index = std::min(thread_counter.load(), max_num_threads);
+        return std::any_of(thread_readers.begin(), thread_readers.begin() + max_index, [epoch](auto& reader) {
             std::uint64_t reader_epoch = reader.min_epoch.load();
             return reader_epoch != 0 && reader_epoch <= epoch;
         });
@@ -305,14 +301,22 @@ private:
     };
 
     crill::atomic_unique_ptr<T> value;
+    std::atomic<std::uint64_t> current_epoch = 1;
+
+    static std::atomic<size_t> thread_counter; // initialized to 0 below
     std::vector<reader> thread_readers;
+
     std::vector<zombie> zombies;
     std::mutex zombies_mtx;
-    std::atomic<std::uint64_t> current_epoch = 1;
+
 
     // This algorithm requires a 64-bit lock-free atomic counter to avoid overflow.
     static_assert(std::atomic<std::uint64_t>::is_always_lock_free);
 };
+
+template<typename T, size_t max_num_threads>
+std::atomic<size_t> reclaim_object_tl<T, max_num_threads>::thread_counter = 0;
+
 
 } // namespace crill
 

@@ -21,29 +21,35 @@ static_assert(!std::is_move_assignable_v<crill::reclaim_object_tl<int>>);
 #define CHECK assert
 
 
-//TEST_CASE("reclaim_object_tl::BoundaryThreadCount")
-//{
-//    crill::reclaim_object_tl<int> obj(1);
-//    std::vector<std::thread> threads;
-//    std::atomic<bool> failed(false);
-//
-//    for (size_t i = 0; i < 127; ++i) {
-//        threads.emplace_back([&obj, &failed]() {
-//            try {
-//                auto& reader = obj.get_reader();
-//                CHECK(reader.get_value() == 1); // Initial check for default value
-//            } catch (...) {
-//                failed = true;
-//            }
-//        });
-//    }
-//
-//    for (auto& thread : threads) {
-//        thread.join();
-//    }
-//
-//    CHECK(!failed);
-//}
+TEST_CASE("reclaim_object_tl::BoundaryThreadCount")
+{
+    // Having a custom struct means the reclaim_object_tl<MyCustomStruct> will
+    // have its own thread counter
+    struct MyCustomStruct {
+        int i = 123;
+    };
+    crill::reclaim_object_tl<MyCustomStruct> obj;
+    std::vector<std::thread> threads;
+    std::atomic<bool> failed(false);
+
+    for (size_t i = 0; i < 127; ++i) {
+        threads.emplace_back([&]() {
+            try {
+                auto& reader = obj.get_reader();
+                auto value = reader.get_value();
+                CHECK(value.i == 123); // Initial check for default value
+            } catch (...) {
+                failed = true;
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    CHECK(!failed);
+}
 
 TEST_CASE("reclaim_object_tl::reclaim_object_tl()")
 {
