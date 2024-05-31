@@ -32,7 +32,7 @@ TEST_CASE("reclaim_object_tl::BoundaryThreadCount")
     std::vector<std::thread> threads;
     std::atomic<bool> failed(false);
 
-    for (size_t i = 0; i < 127; ++i) {
+    for (size_t i = 0; i < 128; ++i) {
         threads.emplace_back([&]() {
             try {
                 auto& reader = obj.get_reader();
