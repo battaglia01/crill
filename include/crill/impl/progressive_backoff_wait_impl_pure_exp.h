@@ -39,7 +39,7 @@
 #endif
 
 // partly unrolled loop
-template<unsigned long long N, bool use_isb, unsigned long long max_unroll=64>
+template<unsigned long long N, bool use_isb, unsigned long long max_unroll=16>
 FORCEINLINE constexpr void do_pause() {
     if constexpr(N > max_unroll) {
         for (unsigned long long i = 0; i < N / max_unroll; i++) {
